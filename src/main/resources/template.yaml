@@ -1,0 +1,66 @@
+Resources:
+  CustomerAppSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: For ssh on port 22 access and 8080 port access for Customer App
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "22"
+          ToPort: "22"
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: "8080"
+          ToPort: "8080"
+          CidrIp: 0.0.0.0/0
+  CustomerApp:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      Tags:
+        - Key: Name
+          Value: Customer-App
+      ImageId: ami-0d5eff06f840b45e9 # ImageId depends on a region. The current image is valid ONLY in US-EAST-1
+      KeyName: aws-key # Your pem key name
+      SecurityGroups:
+        - !Ref CustomerAppSG
+      UserData: !Base64 |
+        #!/bin/bash
+        # Install Docker
+        sudo yum update -y
+        sudo yum install docker -y
+        sudo service docker start
+        sudo usermod -a -G docker ec2-user
+        # Install docker-compose
+        sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+        # Create docker-composse file
+        echo "
+        version: '3.8'
+        services:
+          db:
+            container_name: mysql_db
+            image: mysql:8
+            restart: always
+            ports:
+              - "3306:3306"
+            environment:
+              MYSQL_DATABASE: customers
+              MYSQL_ROOT_PASSWORD: password
+            networks:
+              - customer-ec2-network
+          customer-app:
+            container_name: customer_app
+            image: public.ecr.aws/e9n4y3z7/aws-cf-deploy-containerized-app-on-ec2:latest
+            restart: on-failure
+            ports:
+              - "8080:8080"
+            networks:
+              - customer-ec2-network
+            environment:
+              SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/customers
+        networks:
+          customer-ec2-network:
+        " > docker-compose.yaml
+        # Run docker-composse
+        sudo /usr/local/bin/docker-compose up -d
+
